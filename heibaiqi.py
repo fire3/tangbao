@@ -1,38 +1,195 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QMessageBox
+from PyQt5.QtWidgets import QApplication, QWidget, QMessageBox, QPushButton, QVBoxLayout, QHBoxLayout, QDialog, QLabel, QRadioButton
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
+
+class ColorSelectDialog(QDialog):
+    """颜色选择对话框"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.initUI()
+        
+    def initUI(self):
+        self.setWindowTitle('选择您的棋子颜色')
+        layout = QVBoxLayout()
+        
+        # 添加提示文本
+        label = QLabel('请选择您要执的棋子颜色：')
+        layout.addWidget(label)
+        
+        # 创建单选按钮
+        self.black_radio = QRadioButton('执黑子（先手）')
+        self.white_radio = QRadioButton('执白子（后手）')
+        self.black_radio.setChecked(True)  # 默认选择黑子
+        
+        layout.addWidget(self.black_radio)
+        layout.addWidget(self.white_radio)
+        
+        # 创建确认按钮
+        confirm_button = QPushButton('确认')
+        confirm_button.clicked.connect(self.accept)
+        layout.addWidget(confirm_button)
+        
+        self.setLayout(layout)
 
 class ChessBoard(QWidget):
     def __init__(self):
         super().__init__()
-        self.initUI()
-        # 初始化棋盘状态数组：0表示空，1表示黑子，2表示白子
+        self.is_ai_mode = False  # 默认人人对战模式
+        self.player_is_black = True  # 默认玩家执黑
+        # 初始化棋盘状态
         self.board_state = [[0] * 10 for _ in range(10)]
-        # 设置初始棋子
         center = 4
         self.board_state[center][center] = 1
         self.board_state[center+1][center+1] = 1
         self.board_state[center][center+1] = 2
         self.board_state[center+1][center] = 2
-        # 添加当前回合标记：1表示黑子回合，2表示白子回合
         self.current_turn = 1  # 黑子先手
+        
+        self.initUI()
 
     def initUI(self):
-        # 设置窗口标题和初始大小
+        # 创建主布局
+        main_layout = QVBoxLayout()
+        
+        # 创建按钮布局
+        button_layout = QHBoxLayout()
+        
+        # 创建模式选择按钮
+        self.pvp_button = QPushButton('人人对战', self)
+        self.pve_button = QPushButton('人机对战', self)
+        self.restart_button = QPushButton('重新开始', self)
+        
+        # 设置按钮样式
+        button_style = """
+            QPushButton {
+                background-color: #4A148C;
+                color: white;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 5px;
+                min-width: 100px;
+                min-height: 30px;
+            }
+            QPushButton:hover {
+                background-color: #6A1B9A;
+            }
+            QPushButton:pressed {
+                background-color: #38006b;
+            }
+        """
+        self.pvp_button.setStyleSheet(button_style)
+        self.pve_button.setStyleSheet(button_style)
+        self.restart_button.setStyleSheet(button_style)
+        
+        # 添加按钮到布局
+        button_layout.addWidget(self.pvp_button)
+        button_layout.addWidget(self.pve_button)
+        button_layout.addWidget(self.restart_button)
+        
+        # 连接按钮信号
+        self.pvp_button.clicked.connect(self.start_pvp_mode)
+        self.pve_button.clicked.connect(self.show_color_select)
+        self.restart_button.clicked.connect(self.reset_game)
+        
+        # 添加按钮布局到主布局（放在最上方）
+        main_layout.addLayout(button_layout)
+        
+        # 设置主布局
+        self.setLayout(main_layout)
+        
+        # 设置窗口属性
         self.setWindowTitle('黑白棋')
-        self.setGeometry(300, 300, 800, 800)  # 设置更大的初始窗口
-        # 设置渐变背景色
-        self.setStyleSheet("""
+        self.setGeometry(300, 300, 800, 850)
+        
+        # 只为按钮区域设置背景色
+        button_container = QWidget()
+        button_container.setLayout(button_layout)
+        button_container.setStyleSheet("""
             QWidget {
-                background: qlineargradient(
-                    x1: 0, y1: 0, x2: 1, y2: 1,
-                    stop: 0 #4A148C,
-                    stop: 0.5 #311B92,
-                    stop: 1 #1A237E
-                );
+                background: #4A148C;
+                padding: 10px;
             }
         """)
+        
+        main_layout.addWidget(button_container)
+        main_layout.addStretch(1)  # 添加弹性空间
+
+    def show_color_select(self):
+        """显示颜色选择对话框"""
+        dialog = ColorSelectDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.player_is_black = dialog.black_radio.isChecked()
+            self.start_pve_mode()
+
+    def start_pve_mode(self):
+        """切换到人机对战模式"""
+        self.is_ai_mode = True
+        self.reset_game()
+        # 如果玩家选择执白，AI先手（执黑）
+        if not self.player_is_black:
+            self.current_turn = 1  # 确保是黑子回合
+            QTimer.singleShot(500, self.ai_move)
+
+    def ai_move(self):
+        """AI落子逻辑"""
+        best_score = float('-inf')
+        best_move = None
+        ai_color = 1 if not self.player_is_black else 2  # AI的颜色与玩家相反
+        
+        # 遍历所有可能的落子位置
+        for row in range(10):
+            for col in range(10):
+                if self.board_state[row][col] == 0:
+                    # 临时落子
+                    self.board_state[row][col] = ai_color
+                    if self.check_and_flip_pieces(row, col, ai_color, check_only=True):
+                        # 计算这步棋的得分
+                        score = self.evaluate_move(row, col)
+                        if score > best_score:
+                            best_score = score
+                            best_move = (row, col)
+                    # 撤销临时落子
+                    self.board_state[row][col] = 0
+        
+        # 如果找到合法移动，执行这个移动
+        if best_move:
+            row, col = best_move
+            self.board_state[row][col] = ai_color
+            self.check_and_flip_pieces(row, col, ai_color)
+            # 检查玩家是否有合法移动
+            player_color = 2 if not self.player_is_black else 1
+            if self.check_valid_moves(player_color):
+                self.current_turn = player_color
+            else:
+                self.check_game_over()
+            self.update()
+
+    def evaluate_move(self, row, col):
+        """评估某个位置的得分"""
+        score = 0
+        ai_color = 1 if not self.player_is_black else 2  # AI的颜色与玩家相反
+        
+        # 临时保存棋盘状态
+        temp_board = [row[:] for row in self.board_state]
+        # 计算这步棋能翻转多少个子
+        self.check_and_flip_pieces(row, col, ai_color)
+        # 计算翻转后的得分
+        for i in range(10):
+            for j in range(10):
+                if self.board_state[i][j] == ai_color:
+                    # 角落位置最有价值
+                    if (i in [0, 9] and j in [0, 9]):
+                        score += 10
+                    # 边缘位置次之
+                    elif i in [0, 9] or j in [0, 9]:
+                        score += 5
+                    # 普通位置
+                    else:
+                        score += 1
+        # 恢复棋盘状态
+        self.board_state = temp_board
+        return score
 
     def paintEvent(self, event):
         painter = QPainter()
@@ -74,10 +231,10 @@ class ChessBoard(QWidget):
 
     def mousePressEvent(self, event):
         # 计算棋盘大小（与绘制时使用相同的计算方法）
-        board_size = int(min(self.width(), self.height()) * 0.8)  # 转换为整数
+        board_size = int(min(self.width(), self.height() - 100) * 0.8)  # 减去按钮区域的高度
         square_size = board_size // 10
         start_x = (self.width() - board_size) // 2
-        start_y = (self.height() - board_size) // 2
+        start_y = ((self.height() - 100) - board_size) // 2 + 100  # 考虑按钮区域的高度
         
         # 获取鼠标点击的位置
         pos = event.pos()
@@ -92,39 +249,53 @@ class ChessBoard(QWidget):
             
             # 检查是否在棋盘范围内（额外的安全检查）
             if 0 <= row < 10 and 0 <= col < 10:
-                # 只能在空位置放置棋子
                 if self.board_state[row][col] == 0:
-                    # 黑子回合只能放黑子，白子回合只能放白子
-                    if (self.current_turn == 1 and event.button() == Qt.LeftButton) or \
-                       (self.current_turn == 2 and event.button() == Qt.RightButton):
-                        # 临时放置棋子检查是否可以翻转
-                        self.board_state[row][col] = self.current_turn
-                        if self.check_and_flip_pieces(row, col, self.current_turn, check_only=True):
-                            # 确实可以翻转，执行实际的翻转操作
-                            self.check_and_flip_pieces(row, col, self.current_turn)
-                            # 切换回合
-                            self.current_turn = 3 - self.current_turn
-                            self.update()  # 重绘棋盘
-                            # 检查游戏是否结束
-                            self.check_game_over()
-                        else:
-                            # 不能翻转，撤销落子
-                            self.board_state[row][col] = 0
-    
+                    if self.is_ai_mode:
+                        # 人机模式下的落子逻辑
+                        if ((self.player_is_black and self.current_turn == 1) or 
+                            (not self.player_is_black and self.current_turn == 2)):
+                            # 玩家回合
+                            if ((self.player_is_black and event.button() == Qt.LeftButton) or 
+                                (not self.player_is_black and event.button() == Qt.RightButton)):
+                                self.make_move(row, col)
+                    else:
+                        # 人人对战模式的原有逻辑
+                        if ((self.current_turn == 1 and event.button() == Qt.LeftButton) or 
+                            (self.current_turn == 2 and event.button() == Qt.RightButton)):
+                            self.make_move(row, col)
+
+    def make_move(self, row, col):
+        """执行落子操作"""
+        current_color = self.current_turn
+        self.board_state[row][col] = current_color
+        if self.check_and_flip_pieces(row, col, current_color, check_only=True):
+            self.check_and_flip_pieces(row, col, current_color)
+            next_turn = 3 - current_color
+            if self.check_valid_moves(next_turn):
+                self.current_turn = next_turn
+                if self.is_ai_mode and ((self.player_is_black and current_color == 1) or 
+                                      (not self.player_is_black and current_color == 2)):
+                    QTimer.singleShot(500, self.ai_move)
+            else:
+                self.check_game_over()
+            self.update()
+        else:
+            self.board_state[row][col] = 0
+
     def drawBoard(self, painter):
         # 计算棋盘大小（取窗口宽高的较小值的80%）
-        board_size = int(min(self.width(), self.height()) * 0.8)  # 转换为整数
+        board_size = int(min(self.width(), self.height() - 100) * 0.8)  # 减去按钮区域的高度
         square_size = board_size // 10
         
         # 计算棋盘在窗口中的位置（居中）
         start_x = (self.width() - board_size) // 2
-        start_y = (self.height() - board_size) // 2
+        start_y = ((self.height() - 100) - board_size) // 2 + 100  # 考虑按钮区域的高度
         
         # 绘制棋盘外边框（深色边框）
         painter.setPen(Qt.black)
         painter.setBrush(QColor('#2C3E50'))  # 深色背景
         painter.drawRect(
-            int(start_x - square_size*0.2),  # 转换为整数
+            int(start_x - square_size*0.2),
             int(start_y - square_size*0.2),
             int(board_size + square_size*0.4),
             int(board_size + square_size*0.4)
@@ -145,10 +316,10 @@ class ChessBoard(QWidget):
 
     def drawInitialPieces(self, painter):
         # 计算棋盘大小
-        board_size = int(min(self.width(), self.height()) * 0.8)  # 转换为整数
+        board_size = int(min(self.width(), self.height() - 100) * 0.8)  # 减去按钮区域的高度
         square_size = board_size // 10
         start_x = (self.width() - board_size) // 2
-        start_y = (self.height() - board_size) // 2
+        start_y = ((self.height() - 100) - board_size) // 2 + 100  # 考虑按钮区域的高度
         
         for row in range(10):
             for col in range(10):
@@ -215,32 +386,27 @@ class ChessBoard(QWidget):
     
     def check_game_over(self):
         """检查游戏是否结束并显示结果"""
-        # 检查双方是否都无法继续落子
-        black_can_move = self.check_valid_moves(1)
-        white_can_move = self.check_valid_moves(2)
+        # 计算双方棋子数量
+        black_count = sum(row.count(1) for row in self.board_state)
+        white_count = sum(row.count(2) for row in self.board_state)
         
-        if not black_can_move and not white_can_move:
-            # 计算双方棋子数量
-            black_count = sum(row.count(1) for row in self.board_state)
-            white_count = sum(row.count(2) for row in self.board_state)
+        # 显示结果
+        msg = QMessageBox()
+        msg.setWindowTitle('游戏结束')
+        
+        if black_count > white_count:
+            result = f'黑方胜利！\n黑子：{black_count}\n白子：{white_count}'
+        elif white_count > black_count:
+            result = f'白方胜利！\n黑子：{black_count}\n白子：{white_count}'
+        else:
+            result = f'平局！\n黑子：{black_count}\n白子：{white_count}'
             
-            # 显示结果
-            msg = QMessageBox()
-            msg.setWindowTitle('游戏结束')
-            
-            if black_count > white_count:
-                result = f'黑方胜利！\n黑子：{black_count}\n白子：{white_count}'
-            elif white_count > black_count:
-                result = f'白方胜利！\n黑子：{black_count}\n白子：{white_count}'
-            else:
-                result = f'平局！\n黑子：{black_count}\n白子：{white_count}'
-                
-            msg.setText(result)
-            msg.exec_()
-            
-            # 重置游戏
-            self.reset_game()
-            
+        msg.setText(result)
+        msg.exec_()
+        
+        # 重置游戏
+        self.reset_game()
+        
     def reset_game(self):
         """重置游戏状态"""
         self.board_state = [[0] * 10 for _ in range(10)]
@@ -256,6 +422,11 @@ class ChessBoard(QWidget):
         """处理窗口大小改变事件"""
         super().resizeEvent(event)
         self.update()  # 重绘棋盘
+
+    def start_pvp_mode(self):
+        """切换到人人对战模式"""
+        self.is_ai_mode = False
+        self.reset_game()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
